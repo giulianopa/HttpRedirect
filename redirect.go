@@ -13,14 +13,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- package main
+package main
 
- import (
-     "fmt"
-     "log"
-     "net/http"
-     "github.com/gorilla/mux"
- )
+import (
+    "fmt"
+    "log"
+    "time"
+    "net/http"
+    "container/ring"
+    "github.com/gorilla/mux"
+)
+
+
+//------------
+// Parameters
+//------------
+
+const SERVICE_PORT string = ":8080"
+const REDIRECT_PROTO string = "http://"
+const RING_BUF_SZ int = 100
+var Hosts *ring.Ring
 
 
 //-------
@@ -29,16 +41,18 @@
 
 // Remote host descriptor.
 type RemoteHost struct {
-    ip string   // RemoteAddr, from the original HttpRequest.
+    ts time.Time    // Timestamp.
+    ip string       // RemoteAddr, from the original HttpRequest.
+    destUrl string  // The URL the remote address was redirected to.
 }
 
-
-//------------
-// Parameters
-//------------
-
-const SERVICE_PORT string = ":8080"
-var Hosts []RemoteHost
+// Conversion to string
+/*
+    Called when printing a RemoteHost instance.
+ */
+func (h RemoteHost) String() string {
+    return fmt.Sprintf("%v;%v;%v;", h.ts.Format(time.RFC3339), h.ip, h.destUrl)
+}
 
 
 //-----------
@@ -46,23 +60,32 @@ var Hosts []RemoteHost
 //-----------
 
 // Redirect and log
- func Redirect(w http.ResponseWriter, r *http.Request) {
-     vars := mux.Vars(r)
-     url := vars["url"]
-     logMsg := r.RemoteAddr + "," + url
-     Hosts = append(Hosts, RemoteHost{ip: logMsg + ";"})
-     fmt.Printf(logMsg + "\n")
-     http.Redirect(w, r,  "http://" + url, 301)
- }
+func Redirect(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    url := vars["url"]
+    host := RemoteHost{ip: r.RemoteAddr, destUrl: url, ts: time.Now().UTC()}
+    Hosts.Value = host
+    fmt.Println(host)
+    Hosts = Hosts.Next()
+    http.Redirect(w, r,  REDIRECT_PROTO + url, 301)
+}
 
 // Log collected information
- func Log(w http.ResponseWriter, r *http.Request) {
-     fmt.Fprintf(w, "%v\n", Hosts)
- }
+func Log(w http.ResponseWriter, r *http.Request) {
+    Hosts.Do(func(p interface{}) {
+        if p.(RemoteHost).ip != "" {
+            fmt.Fprintln(w, p.(RemoteHost))
+        }
+    })
+}
 
 // Initialize
 func init() {
-    // NOOP
+    Hosts = ring.New(RING_BUF_SZ)
+    for i := 0; i < Hosts.Len(); i++ {
+        Hosts.Value = RemoteHost{ip: ""}
+        Hosts = Hosts.Next()
+    }
 }
 
 
