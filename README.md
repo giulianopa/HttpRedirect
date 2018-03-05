@@ -16,7 +16,7 @@ $ ./redirect
 ```
 
 Then, from a browser: `localhost:8080/r/<URL_to_redirect_to>`
-To see the log: `localhost:8080/log`
+To see the log: `localhost:8080/log` (or check the standard output).
 
 
 ## Useful links
